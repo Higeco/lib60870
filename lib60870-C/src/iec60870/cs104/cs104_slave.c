@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016-2022 Michael Zillgith
+ *  Copyright 2016-2023 Michael Zillgith
  *
  *  This file is part of lib60870-C
  *
@@ -319,7 +319,7 @@ MessageQueue_enqueueASDU(MessageQueue self, CS101_ASDU asdu)
     memcpy(nextMsgPtr, &entryInfo, sizeof(struct sMessageQueueEntryInfo));
 
     DEBUG_PRINT("CS104 SLAVE: ASDUs in FIFO: %i (new(size=%i/%i): %p, first: %p, last: %p lastInBuf: %p)\n", self->entryCounter, entrySize, asduSize, nextMsgPtr,
-            self->firstEntry, self->lastEntry, self->lastInBufferEntry);
+             self->firstEntry, self->lastEntry, self->lastInBufferEntry);
 
 #if (CONFIG_USE_SEMAPHORES == 1)
     Semaphore_post(self->queueLock);
@@ -474,7 +474,6 @@ static void
 MessageQueue_markAsduAsConfirmed(MessageQueue self, uint8_t* queueEntry, uint64_t entryId)
 {
     if (self->entryCounter > 0) {
-
         /* entryId plausibility check */
         uint64_t entryIdDiff = self->entryId - 1 - entryId;
 
@@ -1062,7 +1061,10 @@ struct sCS104_Slave {
     CS104_ServerMode serverMode;
 
     char* localAddress;
+
+#if (CONFIG_USE_THREADS == 1)
     Thread listeningThread;
+#endif
 
     ServerSocket serverSocket;
 
@@ -1304,7 +1306,10 @@ createSlave(int maxLowPrioQueueSize, int maxHighPrioQueueSize)
         self->localAddress = NULL;
         self->tcpPort = CS104_DEFAULT_PORT;
         self->openConnections = 0;
+
+#if (CONFIG_USE_THREADS == 1)
         self->listeningThread = NULL;
+#endif
 
         self->serverSocket = NULL;
 
@@ -1403,28 +1408,10 @@ CS104_Slave_getOpenConnections(CS104_Slave self)
     return openConnections;
 }
 
-static void
-decreaseConnectionCounter(CS104_Slave self)
-{
-#if (CONFIG_USE_SEMAPHORES)
-    Semaphore_wait(self->openConnectionsLock);
-#endif
-
-    self->openConnections--;
-
-#if (CONFIG_USE_SEMAPHORES)
-    Semaphore_post(self->openConnectionsLock);
-#endif
-}
-
 static MasterConnection
 getFreeConnection(CS104_Slave self)
 {
     MasterConnection connection = NULL;
-
-#if (CONFIG_USE_SEMAPHORES)
-    Semaphore_wait(self->openConnectionsLock);
-#endif
 
     int i;
 
@@ -1440,7 +1427,6 @@ getFreeConnection(CS104_Slave self)
             if (con->isUsed == false) {
                 connection = con;
                 connection->isUsed = true;
-                self->openConnections++;
             }
 
 #if (CONFIG_USE_SEMAPHORES)
@@ -1451,10 +1437,6 @@ getFreeConnection(CS104_Slave self)
         if (connection)
             break;
     }
-
-#if (CONFIG_USE_SEMAPHORES)
-    Semaphore_post(self->openConnectionsLock);
-#endif
 
     return connection;
 }
@@ -1502,7 +1484,7 @@ CS104_Slave_activate(CS104_Slave self, MasterConnection connectionToActivate)
         for (i = 0; i < CONFIG_CS104_MAX_CLIENT_CONNECTIONS; i++) {
             MasterConnection con = self->masterConnections[i];
 
-            if (con) {
+            if (con && con->isUsed) {
                 if (con != connectionToActivate)
                     MasterConnection_deactivate(con);
             }
@@ -1530,7 +1512,7 @@ CS104_Slave_activate(CS104_Slave self, MasterConnection connectionToActivate)
         for (i = 0; i < CONFIG_CS104_MAX_CLIENT_CONNECTIONS; i++) {
             MasterConnection con = self->masterConnections[i];
 
-            if (con) {
+            if (con && con->isUsed) {
                 if (con->redundancyGroup == connectionToActivate->redundancyGroup) {
                     if (con != connectionToActivate)
                         MasterConnection_deactivate(con);
@@ -2417,6 +2399,11 @@ handleMessage(MasterConnection self, uint8_t* buffer, int msgSize)
             Semaphore_wait(self->stateLock);
 #endif
             if (frameSendSequenceNumber != self->receiveCount) {
+
+#if (CONFIG_USE_SEMAPHORES == 1)
+                Semaphore_post(self->stateLock);
+#endif
+
                 DEBUG_PRINT("CS104 SLAVE: Sequence error - close connection");
                 return false;
             }
@@ -2527,17 +2514,14 @@ handleMessage(MasterConnection self, uint8_t* buffer, int msgSize)
 
         else if (buffer [2] == 0x01) { /* S-message */
 
-            if (MasterConnection_isActive(self) == false) {
-                DEBUG_PRINT("CS104 SLAVE: Received S message while connection not activate -> close connection");
-                return false;
-            }
-
             int seqNo = (buffer[4] + buffer[5] * 0x100) / 2;
 
             DEBUG_PRINT("CS104 SLAVE: Rcvd S(%i) (own sendcounter = %i)\n", seqNo, self->sendCount);
 
-            if (checkSequenceNumber(self, seqNo) == false)
+            if (checkSequenceNumber(self, seqNo) == false) {
+                DEBUG_PRINT("CS104 SLAVE: S message - sequence number mismatch");
                 return false;
+            }
         }
 
         else {
@@ -2845,8 +2829,8 @@ connectionHandlingThread(void* parameter)
         self->slave->connectionEventHandler(self->slave->connectionEventHandlerParameter, &(self->iMasterConnection), CS104_CON_EVENT_CONNECTION_OPENED);
     }
 
-    while (MasterConnection_isRunning(self)) {
-
+    while (MasterConnection_isRunning(self))
+    {
         Handleset_reset(self->handleSet);
         Handleset_addSocket(self->handleSet, self->socket);
 
@@ -2914,9 +2898,11 @@ connectionHandlingThread(void* parameter)
 #endif /* (CONFIG_USE_SEMAPHORES == 1) */
         }
 
-        if (MasterConnection_isRunning(self))
-            if (MasterConnection_isActive(self))
+        if (MasterConnection_isRunning(self)) {
+            if (MasterConnection_isActive(self)) {
                 isAsduWaiting = sendWaitingASDUs(self);
+            }
+        }
     }
 
     if (self->slave->connectionEventHandler) {
@@ -3000,6 +2986,10 @@ _IMasterConnection_getPeerAddress(IMasterConnection self, char* addrBuf, int add
     MasterConnection con = (MasterConnection) self->object;
 
     char buf[54];
+
+    if (con->socket == NULL) {
+        return 0;
+    }
 
     char* addrStr = Socket_getPeerAddressStatic(con->socket, buf);
 
@@ -3148,7 +3138,7 @@ MasterConnection_initEx(MasterConnection self, Socket skt, CS104_RedundancyGroup
 }
 #endif /* (CONFIG_CS104_SUPPORT_SERVER_MODE_MULTIPLE_REDUNDANCY_GROUPS == 1) */
 
-
+#if (CONFIG_USE_THREADS == 1)
 static void
 MasterConnection_start(MasterConnection self)
 {
@@ -3165,6 +3155,7 @@ MasterConnection_start(MasterConnection self)
 
     Thread_start(self->connectionThread);
 }
+#endif /* (CONFIG_USE_THREADS == 1) */
 
 void
 MasterConnection_close(MasterConnection self)
@@ -3187,9 +3178,11 @@ MasterConnection_deactivate(MasterConnection self)
     Semaphore_wait(self->stateLock);
 #endif /* (CONFIG_USE_SEMAPHORES == 1) */
 
-    if (self->isActive == true) {
-        if (self->slave->connectionEventHandler) {
-             self->slave->connectionEventHandler(self->slave->connectionEventHandlerParameter, &(self->iMasterConnection), CS104_CON_EVENT_DEACTIVATED);
+    if (self->isUsed) {
+        if (self->isActive == true) {
+            if (self->slave->connectionEventHandler) {
+                 self->slave->connectionEventHandler(self->slave->connectionEventHandlerParameter, &(self->iMasterConnection), CS104_CON_EVENT_DEACTIVATED);
+            }
         }
     }
 
@@ -3482,19 +3475,31 @@ handleConnectionsThreadless(CS104_Slave self)
                         CS104_RedundancyGroup matchingGroup = getMatchingRedundancyGroup(self, ipAddrStr);
 
                         if (matchingGroup != NULL) {
+
+#if (CONFIG_USE_SEMAPHORES)
+                            Semaphore_wait(self->openConnectionsLock);
+#endif
+
                             connection = getFreeConnection(self);
 
                             if (connection) {
-                                if (MasterConnection_initEx(connection, newSocket, matchingGroup)) {
+                                if (MasterConnection_initEx(connection, newSocket, matchingGroup))
+                                {
+                                    self->openConnections++;
+
                                     if (matchingGroup->name) {
                                         DEBUG_PRINT("CS104 SLAVE: Add connection to group: %s\n", matchingGroup->name);
                                     }
                                 }
                                 else {
-                                    decreaseConnectionCounter(self);
+                                    connection->isUsed = false;
                                     connection = NULL;
                                 }
                             }
+
+#if (CONFIG_USE_SEMAPHORES)
+                            Semaphore_post(self->openConnectionsLock);
+#endif
 
                         }
                         else {
@@ -3509,6 +3514,9 @@ handleConnectionsThreadless(CS104_Slave self)
                 else
 #endif /* CONFIG_CS104_SUPPORT_SERVER_MODE_MULTIPLE_REDUNDANCY_GROUPS */
                 {
+#if (CONFIG_USE_SEMAPHORES)
+                    Semaphore_wait(self->openConnectionsLock);
+#endif
                     connection = getFreeConnection(self);
 
 #if (CONFIG_CS104_SUPPORT_SERVER_MODE_CONNECTION_IS_REDUNDANCY_GROUP == 1)
@@ -3522,11 +3530,19 @@ handleConnectionsThreadless(CS104_Slave self)
 #endif /* CONFIG_CS104_SUPPORT_SERVER_MODE_MULTIPLE_REDUNDANCY_GROUPS */
 
                     if (connection) {
-                        if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue) == false) {
-                            decreaseConnectionCounter(self);
+                        if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue)) {
+                            self->openConnections++;
+                        }
+                        else {
+                            connection->isUsed = false;
                             connection = NULL;
                         }
                     }
+
+#if (CONFIG_USE_SEMAPHORES)
+                    Semaphore_post(self->openConnectionsLock);
+#endif
+
                 }
 
                 if (connection) {
@@ -3552,6 +3568,8 @@ handleConnectionsThreadless(CS104_Slave self)
 
     handleClientConnections(self);
 }
+
+#if (CONFIG_USE_THREADS == 1)
 
 static void*
 serverThread (void* parameter)
@@ -3639,19 +3657,30 @@ serverThread (void* parameter)
                         CS104_RedundancyGroup matchingGroup = getMatchingRedundancyGroup(self, ipAddrStr);
 
                         if (matchingGroup != NULL) {
+
+#if (CONFIG_USE_SEMAPHORES)
+                            Semaphore_wait(self->openConnectionsLock);
+#endif
+
                             connection = getFreeConnection(self);
 
                             if (connection) {
                                 if (MasterConnection_initEx(connection, newSocket, matchingGroup)) {
+                                    self->openConnections++;
+
                                     if (matchingGroup->name) {
                                         DEBUG_PRINT("CS104 SLAVE: Add connection to group: %s\n", matchingGroup->name);
                                     }
                                 }
                                 else {
-                                    decreaseConnectionCounter(self);
+                                    connection->isUsed = false;
                                     connection = NULL;
                                 }
                             }
+
+#if (CONFIG_USE_SEMAPHORES)
+                            Semaphore_post(self->openConnectionsLock);
+#endif
 
                         }
                         else {
@@ -3664,26 +3693,50 @@ serverThread (void* parameter)
 
                 }
                 else {
+
+#if (CONFIG_USE_SEMAPHORES)
+                    Semaphore_wait(self->openConnectionsLock);
+#endif
+
                     connection = getFreeConnection(self);
 
                     if (connection) {
-                        if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue) == false) {
-                            decreaseConnectionCounter(self);
+                        if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue)) {
+                            self->openConnections++;
+                        }
+                        else {
+                            connection->isUsed = false;
                             connection = NULL;
                         }
                     }
 
+#if (CONFIG_USE_SEMAPHORES)
+                    Semaphore_post(self->openConnectionsLock);
+#endif
+
                 }
 #else
+
+#if (CONFIG_USE_SEMAPHORES)
+                Semaphore_wait(self->openConnectionsLock);
+#endif
                 connection = getFreeConnection(self);
 
                 if (connection) {
-                    if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue) == false) {
-                        decreaseConnectionCounter(self);
+                    if (MasterConnection_init(connection, newSocket, lowPrioQueue, highPrioQueue)) {
+                        self->openConnections++;
+                    }
+                    else {
+                        connection->isUsed = false;
                         connection = NULL;
                     }
                 }
+
+#if (CONFIG_USE_SEMAPHORES)
+                Semaphore_post(self->openConnectionsLock);
 #endif
+
+#endif /* (CONFIG_CS104_SUPPORT_SERVER_MODE_MULTIPLE_REDUNDANCY_GROUPS == 1) */
 
                 if (connection) {
                     /* now start the connection handling (thread) */
@@ -3787,6 +3840,8 @@ serverThread (void* parameter)
 exit_function:
     return NULL;
 }
+
+#endif /* (CONFIG_USE_THREADS == 1) */
 
 void
 CS104_Slave_enqueueASDU(CS104_Slave self, CS101_ASDU asdu)
@@ -4079,14 +4134,15 @@ CS104_Slave_stop(CS104_Slave self)
         /*
          * Stop all connections
          * */
-#if (CONFIG_USE_SEMAPHORES == 1)
-        Semaphore_wait(self->openConnectionsLock);
-#endif
 
         {
             int i;
 
             for (i = 0; i < CONFIG_CS104_MAX_CLIENT_CONNECTIONS; i++) {
+
+#if (CONFIG_USE_SEMAPHORES == 1)
+                Semaphore_wait(self->openConnectionsLock);
+#endif
 
                 MasterConnection connection = self->masterConnections[i];
 
@@ -4107,23 +4163,34 @@ CS104_Slave_stop(CS104_Slave self)
 
 #if (CONFIG_USE_THREADS == 1)
                         if (connection->connectionThread) {
+
+#if (CONFIG_USE_SEMAPHORES == 1)
+                            Semaphore_post(self->openConnectionsLock);
+#endif
+
                             Thread_destroy(connection->connectionThread);
+
+#if (CONFIG_USE_SEMAPHORES == 1)
+                            Semaphore_wait(self->openConnectionsLock);
+#endif
+
                             MasterConnection_deinit(connection);
 
                             connection->connectionThread = NULL;
                         }
-#endif
+#endif /* (CONFIG_USE_THREADS == 1) */
 
                         self->openConnections--;
                     }
 
                 }
-            }
-        }
 
 #if (CONFIG_USE_SEMAPHORES == 1)
-        Semaphore_post(self->openConnectionsLock);
+                Semaphore_post(self->openConnectionsLock);
 #endif
+
+            }
+        }
 
         self->listeningThread = NULL;
     }
