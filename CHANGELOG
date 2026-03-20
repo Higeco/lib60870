@@ -1,3 +1,73 @@
+Changes to version 2.4.0
+------------------------
+
+- Added function CS104_Connection_isConnected
+- TLS integration code for mbedtls 2.28 and 3.6 updated for better compliance with IEC 62351 security event requirements
+- TLS (mbedtls 3.6): explicitely disabled hostname verfication to avoid problem with mbedtls 3.6.3 and later
+- updated minimum required cmake version to be compatible with cmake 4.0
+- added integration code for secure authentication (IEC 60870-5-7:2013) module (the actual secure authentication code is available as commercial add-on)
+- CS104 slave: added functions to set callback handlers for reset process and delay acquisition commands (#137)
+- CS101/CS104 slave: only allow known CAA for internally handled commands -> added callback CS101_IsCAAllowedHandler (LIB8705-126)
+- CS101/CS104 slave: reject commands with broadcast CA when not allowed for command type (LIB8705-130)
+- CS104 slave: fixed potentical deadlock - lowPrioQueue doesn't have to be locked during sendASDU call
+- CS104 slave: fixed detection of unconfirmed messages when connection is closed
+- CS104 client: added threadless operation mode (CS104_Connection_startThreadless/stopThreadless/run) and example cs104_client_no_threads (LIB8705-134)
+- CS104 client: implemented T1 timeout when waiting for STARTDT/STOPDT confirmation messages
+- Added IMasterConnection_sendASDUEx to allow bypassing queues for correct message ordering in GI responses (LIB8705-149)
+- updated CS 104 server example to show standard compliant interrogation handling
+- fix: CS104 client is sending same S message multiple times when sending STOPDT_ACT (LIB8705-150)
+- fix: slave is sending STOP-DT CON when there are unconfirmed sent I messages from the high prio queue (LIB8705-148)
+- added some warning/alarms to mbedtls 2.28 integration to comply with IEC 62351-100-3 test cases
+- CS101/CS104 slave: added additional options for interrogation handling to allow better compliance with priority rules
+
+
+Changes to version 2.3.6
+------------------------
+
+- fixed wrong size calculation when decoding FileDirectory(F_DR_TA_1) type (#179)
+- CS104 Slave/CS101 Slave: fixed handling of test commands to be compliant with conformance test case (LIB8705-128)
+- CS104_Connection: fixed possible application crash when application is trying to send a message after connection is closed (LIB8705-127)
+- fixed all unchecked results from calls to CS101_ASDU_getElement/CS101_ASDU_getElementEx (#178) -> fixes vulnerability GHSA-75pr-rr3v-j6px (possible NULL pointer dereference when invalid test command is received by CS 104 server)
+- code format updates
+
+
+Changes to version 2.3.5
+------------------------
+
+- fixed MessageQueue_isAsduAvailable to solve CPU usage problem in CS104 server (LIB8705-123)
+- fixed problem in normalized value handling (LIB8705-122)
+
+Changes to version 2.3.4
+------------------------
+
+- removed internal calls to CS101_ASDU_createFromBuffer to avoid dynamic memory allocation while handling received ASDUs
+- added CS101_ASDU_createFromBuffer to API
+- added ability to change config defines from make command (#169)
+- Time(Linux): always use clock_gettime; cleanup cmake files to remove checks for clock_gettime (#162)
+- Time(windows): fixed - Hal_getMonotonicTimeInMs() doesn't call GetTickCount64 correctly (#163)
+
+Changes to version 2.3.3
+------------------------
+
+- TLS: support for TLS 1.3 (when using mbedtls 3.6)
+- TLS: support to select TLS cipher suites 
+- CS104 slave: check IOA of received commands where IOA is fixed to 0 (LIB8705-101)
+- CS 104 slave: only send S message after receiving STOPDT-ACT when there are unconfirmed outstanding I messages to be compliant with test case IEC 60870-5-604:2016-5.3.2.70 (LIB8705-97)
+- fixed bug in test pattern for TestCommand (I651CL-25)
+- fixed initialization problem in StepCommand_create (I651CL-22)
+- disable support for C_TS_NA_1 for CS104 by default
+- use monotonic time for timers when supported by platform (LIB8705-87)
+- CS101 slave: updated behavior in unbalanced mode when FCB bit did not change (LIB8705-104)
+- fixed - k parameter from user configuration is not used
+- added handling of pending unconfirmed stopped state (LIB8705-83)
+- CS104_Connection: call connection handler only outside of connection lock to avoid deadlocks in user code (LIB8705-62)
+- CS104 connection: fixed potential race condition when connection is closed by peer (#147)
+- CS104 slave: fixed - lock not released in error case (#138)
+- fixed - CS 104 server: invalid read - when MasterConnection_deactivate is called after MasterConnection_deinit (LIB8705-54)
+- fixed - CS 104 server: connection is closed by server when receiving S message in inactive state (LIB8705-55)
+- fixed - CS104_Connection deadlock when sending commands/ASDUs (#134)(LIB8705-52)
+
+
 Changes to version 2.3.2
 ------------------------
 

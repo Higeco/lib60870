@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016-2022 Michael Zillgith
+ *  Copyright 2016-2025 Michael Zillgith
  *
  *  This file is part of lib60870-C
  *
@@ -46,8 +46,8 @@ extern "C" {
 #define IEC_60870_5_104_DEFAULT_TLS_PORT 19998
 
 #define LIB60870_VERSION_MAJOR 2
-#define LIB60870_VERSION_MINOR 3
-#define LIB60870_VERSION_PATCH 3
+#define LIB60870_VERSION_MINOR 4
+#define LIB60870_VERSION_PATCH 0
 
 /**
  * \brief lib60870 version information
@@ -455,6 +455,16 @@ void
 CS101_ASDU_setNumberOfElements(CS101_ASDU self, int numberOfElements);
 
 /**
+ * \brief Get the value of the VSQ (variable structure qualifier) field of the ASDU
+ *
+ * The VSQ field contains the number of information objects in the ASDU and the sequence flag
+ *
+ * \return the VSQ value
+ */
+uint8_t
+CS101_ASDU_getVSQ(CS101_ASDU self);
+
+/**
  * \brief Get the information object with the given index
  *
  * \param index the index of the information object (starting with 0)
@@ -491,6 +501,20 @@ CS101_ASDU_getElementEx(CS101_ASDU self, InformationObject io, int index);
 CS101_ASDU
 CS101_ASDU_create(CS101_AppLayerParameters parameters, bool isSequence, CS101_CauseOfTransmission cot, int oa, int ca,
         bool isTest, bool isNegative);
+
+/**
+ * \brief Create a new ASDU instance from a buffer containing the raw ASDU message bytes
+ *
+ * NOTE: Do not try to append information objects to the instance!
+ *
+ * \param parameters the application layer parameters used to encode the ASDU
+ * \param msg the buffer containing the raw ASDU message bytes
+ * \param msgLength the length of the message
+ *
+ * \return the new CS101_ASDU instance
+ */
+CS101_ASDU
+CS101_ASDU_createFromBuffer(CS101_AppLayerParameters parameters, uint8_t* msg, int msgLength);
 
 /**
  * \brief Create a new ASDU and store it in the provided static ASDU structure.
@@ -853,6 +877,61 @@ BinaryCounterReading_setAdjusted(BinaryCounterReading self, bool value);
 
 void
 BinaryCounterReading_setInvalid(BinaryCounterReading self, bool value);
+
+typedef struct sIPeerConnection* IPeerConnection;
+
+struct sIPeerConnection {
+    bool (*isReady) (IPeerConnection self);
+    bool (*sendASDU) (IPeerConnection self, CS101_ASDU asdu);
+    bool (*sendASDUEx) (IPeerConnection self, CS101_ASDU asdu, bool bypassQueue);
+    bool (*sendACT_CON) (IPeerConnection self, CS101_ASDU asdu, bool negative);
+    bool (*sendACT_TERM) (IPeerConnection self, CS101_ASDU asdu);
+    void (*close) (IPeerConnection self);
+    int (*getPeerAddress) (IPeerConnection self, char* addrBuf, int addrBufSize);
+    CS101_AppLayerParameters (*getApplicationLayerParameters) (IPeerConnection self);
+    void* object;
+};
+
+bool
+IPeerConnection_isReady(IPeerConnection self);
+
+/**
+ * \brief Send an ASDU to the peer
+ *
+ * \param self the peer connection instance
+ * \param asdu the ASDU to be sent
+ *
+ * \return true when the ASDU has been accepted for transmission, false otherwise
+ */
+bool
+IPeerConnection_sendASDU(IPeerConnection self, CS101_ASDU asdu);
+
+/**
+ * \brief Send an ASDU to the peer
+ *
+ * \param self the peer connection instance
+ * \param asdu the ASDU to be sent
+ * \param bypassQueue when true the ASDU will be sent immediately, bypassing any internal send queue
+ *
+ * \return true when the ASDU has been accepted for transmission, false otherwise
+ */
+bool
+IPeerConnection_sendASDUEx(IPeerConnection self, CS101_ASDU asdu, bool bypassQueue);
+
+bool
+IPeerConnection_sendACT_CON(IPeerConnection self, CS101_ASDU asdu, bool negative);
+
+bool
+IPeerConnection_sendACT_TERM(IPeerConnection self, CS101_ASDU asdu);
+
+CS101_AppLayerParameters
+IPeerConnection_getApplicationLayerParameters(IPeerConnection self);
+
+void
+IPeerConnection_close(IPeerConnection self);
+
+int
+IPeerConnection_getPeerAddress(IPeerConnection self, char* addrBuf, int addrBufSize);
 
 /**
  * @}

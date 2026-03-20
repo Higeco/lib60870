@@ -1,5 +1,5 @@
 /*
- *  Copyright 2016-2022 Michael Zillgith
+ *  Copyright 2016-2025 Michael Zillgith
  *
  *  This file is part of lib60870-C
  *
@@ -213,7 +213,7 @@ typedef uint8_t QualifierOfParameterActivation;
 #define IEC60870_QPA_NOT_USED 0
 #define IEC60870_QPA_DE_ACT_PREV_LOADED_PARAMETER 1
 #define IEC60870_QPA_DE_ACT_OBJECT_PARAMETER 2
-#define IEC60870_QPA_DE_ACT_OBJECT_TRANSMISSION 4
+#define IEC60870_QPA_DE_ACT_OBJECT_TRANSMISSION 3
 
 
 typedef uint8_t SetpointCommandQualifier;
@@ -282,6 +282,11 @@ StatusAndStatusChangeDetection_getST(const StatusAndStatusChangeDetection self, 
 bool
 StatusAndStatusChangeDetection_getCD(const StatusAndStatusChangeDetection self, int index);
 
+float
+NormalizedValue_fromScaled(int scaledValue);
+
+int
+NormalizedValue_toScaled(float normalizedValue);
 
 /************************************************
  * InformationObject
@@ -846,6 +851,52 @@ IntegratedTotalsWithCP56Time2a_getTimestamp(IntegratedTotalsWithCP56Time2a self)
 void
 IntegratedTotalsWithCP56Time2a_setTimestamp(IntegratedTotalsWithCP56Time2a self,
         CP56Time2a value);
+
+/*************************************************************
+ * IntegratedTotalsForSecurityStatistics : InformationObject
+ *************************************************************/
+
+typedef struct sIntegratedTotalsForSecurityStatistics* IntegratedTotalsForSecurityStatistics;
+
+void
+IntegratedTotalsForSecurityStatistics_destroy(IntegratedTotalsForSecurityStatistics self);
+
+/**
+ * \brief Create a new instance of IntegratedTotalsForSecurityStatistics information object
+ *
+ * For message type: S_IT_TC_1 (41)
+ *
+ * \param self Reference to an existing instance to reuse, if NULL a new instance will we dynamically allocated
+ * \param ioa Information object address
+ * \param aid association ID
+ * \param value binary counter reading value and state
+*  \param timestamp timestamp of the reading
+ *
+ * \return Reference to the new instance
+ */
+IntegratedTotalsForSecurityStatistics
+IntegratedTotalsForSecurityStatistics_create(IntegratedTotalsForSecurityStatistics self, int ioa, uint16_t aid,
+        const BinaryCounterReading value, const CP56Time2a timestamp);
+
+uint16_t
+IntegratedTotalsForSecurityStatistics_getAID(IntegratedTotalsForSecurityStatistics self);
+
+void
+IntegratedTotalsForSecurityStatistics_setAID(IntegratedTotalsForSecurityStatistics self, uint16_t value);
+
+BinaryCounterReading
+IntegratedTotalsForSecurityStatistics_getBCR(IntegratedTotalsForSecurityStatistics self);
+
+void
+IntegratedTotalsForSecurityStatistics_setBCR(IntegratedTotalsForSecurityStatistics self, BinaryCounterReading value);
+
+CP56Time2a
+IntegratedTotalsForSecurityStatistics_getTimestamp(IntegratedTotalsForSecurityStatistics self);
+
+void
+IntegratedTotalsForSecurityStatistics_setTimestamp(IntegratedTotalsForSecurityStatistics self,
+        CP56Time2a value);
+
 
 /***********************************************************************
  * EventOfProtectionEquipment : InformationObject
@@ -2047,7 +2098,7 @@ FileSegment_destroy(FileSegment self);
 typedef struct sFileDirectory* FileDirectory;
 
 FileDirectory
-FileDirectory_create(FileDirectory self, int ioa, uint16_t nof, int lengthOfFile, uint8_t sof, const CP56Time2a creationTime);
+FileDirectory_create(FileDirectory self, int ioa, uint16_t nof, uint32_t lengthOfFile, uint8_t sof, const CP56Time2a creationTime);
 
 uint16_t
 FileDirectory_getNOF(FileDirectory self);
@@ -2067,7 +2118,7 @@ FileDirectory_getFOR(FileDirectory self);
 bool
 FileDirectory_getFA(FileDirectory self);
 
-uint8_t
+uint32_t
 FileDirectory_getLengthOfFile(FileDirectory self);
 
 CP56Time2a

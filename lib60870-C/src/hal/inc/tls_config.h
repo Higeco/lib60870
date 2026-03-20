@@ -3,7 +3,7 @@
  *
  * TLS Configuration API for protocol stacks using TCP/IP
  *
- * Copyright 2017-2022 Michael Zillgith
+ * Copyright 2017-2024 Michael Zillgith
  *
  * Abstraction layer for configuration of different TLS implementations
  *
@@ -17,6 +17,7 @@ extern "C" {
 #endif
 
 #include "hal_base.h"
+#include "tls_ciphers.h"
 
 /**
  * \file tls_config.h
@@ -61,10 +62,10 @@ typedef enum {
 
 /**
  * \brief Convert TLS version number to string
- * 
+ *
  * \param version TLS version number
- * 
- * \return the TLS version as null terminated string 
+ *
+ * \return the TLS version as null terminated string
  */
 PAL_API const char*
 TLSConfigVersion_toString(TLSConfigVersion version);
@@ -90,36 +91,49 @@ typedef enum {
 #define TLS_EVENT_CODE_ALM_CERT_NOT_CONFIGURED 13
 #define TLS_EVENT_CODE_ALM_CERT_NOT_TRUSTED 14
 #define TLS_EVENT_CODE_ALM_NO_CIPHER 15
+#define TLS_EVENT_CODE_INF_SESSION_ESTABLISHED 16
+#define TLS_EVENT_CODE_WRN_CERT_EXPIRED 17
+#define TLS_EVENT_CODE_WRN_CERT_NOT_YET_VALID 18
+#define TLS_EVENT_CODE_WRN_CRL_EXPIRED 19
+#define TLS_EVENT_CODE_WRN_CRL_NOT_YET_VALID 20
+#define TLS_EVENT_CODE_ALM_TLS_VERSION_CHANGE 21
+#define TLS_EVENT_CODE_WRN_MIN_KEY_LENGTH 22
+#define TLS_EVENT_CODE_ALM_INSUFFICIENT_KEY_LENGTH 23
+#define TLS_EVENT_CODE_WRN_CRL_NOT_ACCESSIBLE 24
+#define TLS_EVENT_CODE_ALM_CA_CERT_NOT_AVAILABLE 25
+#define TLS_EVENT_CODE_ALM_RENEGOTIATION_TIMEOUT 26
+#define TLS_EVENT_CODE_INF_SESSION_RESUMED 27
+#define TLS_EVENT_CODE_INF_SESSION_EXPIRED 28
 
 typedef struct sTLSConnection* TLSConnection;
 
 /**
  * \brief Get the peer address of the TLS connection
- * 
+ *
  * \param self the TLS connection instance
  * \param peerAddrBuf user provided buffer that can hold at least 60 characters, or NULL to allow the function to allocate the memory for the buffer
- * 
- * \returns peer address:port as null terminated string 
+ *
+ * \returns peer address:port as null terminated string
  */
 PAL_API char*
 TLSConnection_getPeerAddress(TLSConnection self, char* peerAddrBuf);
 
 /**
  * \brief Get the TLS certificate used by the peer
- * 
+ *
  * \param self the TLS connection instance
  * \param certSize[OUT] the certificate size in bytes
- * 
- * \return address of the certificate buffer 
+ *
+ * \return address of the certificate buffer
  */
 PAL_API uint8_t*
 TLSConnection_getPeerCertificate(TLSConnection self, int* certSize);
 
 /**
  * \brief Get the TLS version used by the connection
- * 
+ *
  * \param self the TLS connection instance
- * 
+ *
  * \return TLS version
  */
 PAL_API TLSConfigVersion
@@ -129,7 +143,7 @@ typedef void (*TLSConfiguration_EventHandler)(void* parameter, TLSEventLevel eve
 
 /**
  * \brief Set the security event handler
- * 
+ *
  * \param handler the security event callback handler
  * \param parameter user provided parameter to be passed to the callback handler
  */
@@ -138,10 +152,10 @@ TLSConfiguration_setEventHandler(TLSConfiguration self, TLSConfiguration_EventHa
 
 /**
  * \brief enable or disable TLS session resumption (default: enabled)
- * 
+ *
  * NOTE: Depending on the used TLS version this is implemented by
  * session IDs or by session tickets.
- * 
+ *
  * \param enable true to enable session resumption, false otherwise
  */
 PAL_API void
@@ -162,6 +176,14 @@ TLSConfiguration_setSessionResumptionInterval(TLSConfiguration self, int interva
  */
 PAL_API void
 TLSConfiguration_setChainValidation(TLSConfiguration self, bool value);
+
+/**
+ * \brief Enabled or disables the verification of validity times for certificates and CRLs
+ *
+ * \param value true to enable time validation, false to disable (enabled by default)
+ */
+PAL_API void
+TLSConfiguration_setTimeValidation(TLSConfiguration self, bool value);
 
 /**
  * \brief Set if only known certificates are accepted.
@@ -267,6 +289,19 @@ PAL_API void
 TLSConfiguration_setRenegotiationTime(TLSConfiguration self, int timeInMs);
 
 /**
+ * \brief Set the maximum time allowed for TLS session renegotiation.
+ *
+ * When the renegotiation handshake does not complete within the configured
+ * timeout a security event is generated and the renegotiation attempt is
+ * aborted. Provide a value \<= 0 to disable the timeout enforcement.
+ * The default is 10000 milliseconds.
+ *
+ * \param timeoutInMs timeout in milliseconds
+ */
+PAL_API void
+TLSConfiguration_setRenegotiationTimeout(TLSConfiguration self, int timeoutInMs);
+
+/**
  * \brief Set minimal allowed TLS version to use
  */
 PAL_API void
@@ -277,6 +312,14 @@ TLSConfiguration_setMinTlsVersion(TLSConfiguration self, TLSConfigVersion versio
  */
 PAL_API void
 TLSConfiguration_setMaxTlsVersion(TLSConfiguration self, TLSConfigVersion version);
+
+/**
+ * \brief Set the minimum allowed public key length in bits (smaller keys will cause certificate validation to fail)
+ *
+ * \param keyLengthInBits minimum key length in bits
+ */
+PAL_API void
+TLSConfiguration_setMinimumKeyLength(TLSConfiguration self, int keyLengthInBits);
 
 /**
  * \brief Add a CRL (certificate revocation list) from buffer
@@ -302,6 +345,23 @@ TLSConfiguration_addCRLFromFile(TLSConfiguration self, const char* filename);
  */
 PAL_API void
 TLSConfiguration_resetCRL(TLSConfiguration self);
+
+/**
+ * \brief Add an allowed ciphersuite to the list of allowed ciphersuites
+ *
+ * \param self the TLS configuration instance
+ * \param ciphersuite the ciphersuite to add (IANA cipher suite ID)
+ */
+PAL_API void
+TLSConfiguration_addCipherSuite(TLSConfiguration self, int ciphersuite);
+
+/**
+ * \brief Clear the list of allowed ciphersuites
+ *
+ * \param self the TLS configuration instance
+ */
+PAL_API void
+TLSConfiguration_clearCipherSuiteList(TLSConfiguration self);
 
 /**
  * Release all resource allocated by the TLSConfiguration instance
